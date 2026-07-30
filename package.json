@@ -1,0 +1,47 @@
+{
+  "name": "lumen-calendar",
+  "version": "1.0.0",
+  "description": "A bright, modern personal calendar with events, tasks and notes",
+  "main": "src/main.js",
+  "author": "Lumen",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test test/*.test.js",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder --linux AppImage"
+  },
+  "build": {
+    "appId": "com.lumen.calendar",
+    "productName": "Lumen Calendar",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "src/**/*",
+      "assets/**/*"
+    ],
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "category": "Office",
+      "icon": "assets/icons",
+      "maintainer": "Lumen",
+      "syncDesktopName": true
+    },
+    "appImage": {
+      "compression": "gzip"
+    }
+  },
+  "dependencies": {
+    "ical.js": "^2.2.1",
+    "papaparse": "^5.5.3",
+    "rrule": "^2.8.1"
+  },
+  "devDependencies": {
+    "electron": "^41.7.1",
+    "electron-builder": "^26.15.3"
+  },
+  "desktopName": "lumen-calendar"
+}
