@@ -2,6 +2,8 @@
 
 A clean, fast, offline-first desktop calendar for Linux, macOS, and Windows. Built with Electron.
 
+<img width="1339" height="882" alt="lc" src="https://github.com/user-attachments/assets/33b381b2-23cb-44b3-b29f-1ed9f93110f4" />
+
 ## Features
 
 - **Month / Week / Day views** — switch between them with `1` `2` `3`
