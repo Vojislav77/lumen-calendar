@@ -298,8 +298,18 @@ function registerIPC() {
 
   // settings
   ipcMain.handle('update-settings', (e, patch) => {
-    Object.assign(store.data.settings, patch);
-    store.save();
+    // changing the default reminder makes every existing event follow it
+    const changingDefault = 'defaultReminder' in patch &&
+      patch.defaultReminder !== store.data.settings.defaultReminder;
+    if (changingDefault) {
+      const minutes = patch.defaultReminder;
+      delete patch.defaultReminder;
+      Object.assign(store.data.settings, patch);
+      store.setDefaultReminder(minutes);
+    } else {
+      Object.assign(store.data.settings, patch);
+      store.save();
+    }
     if ('startOnBoot' in patch) applyAutostart(patch.startOnBoot);
     if ('trayIcon' in patch) updateTrayImage();
     return store.data.settings;
@@ -309,6 +319,7 @@ function registerIPC() {
     const via = await showNotification('Lumen Calendar', 'Notifications are working — reminders will look like this.');
     return { supported: !!via, via };
   });
+
 
   // window controls
   ipcMain.on('win-minimize', () => win && win.minimize());
