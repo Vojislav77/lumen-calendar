@@ -14,6 +14,9 @@ function esc(s) {
   return String(s ?? '').replace(/[&<>"']/g, c =>
     ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
+function icon(name) {
+  return `<svg class="ico" aria-hidden="true"><use href="#i-${name}"/></svg>`;
+}
 
 /* ---------- date utils (floating local) ---------- */
 const DAY_MS = 86400000;
@@ -72,7 +75,7 @@ function colorText(hex) { const { r, g, b } = hexRgb(hex); const f = c => Math.r
 const state = {
   view: 'month',
   cursor: new Date(),
-  settings: { name: '', city: '', hour24: true, weekStart: 1, dateFormat: 'DD/MM/YYYY', accent: 'coral', remindersEnabled: true, darkMode: false },
+  settings: { name: '', city: '', hour24: true, weekStart: 1, dateFormat: 'DD/MM/YYYY', accent: 'coral', remindersEnabled: true, defaultReminder: 15, darkMode: false, trayIcon: 'auto' },
   calendars: [],
   categories: [],
   events: [],        // expanded instances for current range (+margin)
@@ -233,18 +236,24 @@ function renderCalList() {
     const li = el('li', state.hiddenCalendars.has(cal.id) ? 'off' : '');
     const sw = el('span', 'sw'); sw.style.background = cal.color;
     const nm = el('span', 'nm', cal.name);
-    const edit = el('button', 'del', '✎');
+    const edit = el('button', 'del');
+    edit.innerHTML = icon('pencil');
     edit.title = 'Edit calendar';
     edit.onclick = e => { e.stopPropagation(); openCalendarModal(cal); };
-    const del = el('button', 'del', '✕');
+    const del = el('button', 'del');
+    del.innerHTML = icon('x');
     del.title = 'Delete calendar';
     del.onclick = async e => {
       e.stopPropagation();
-      if (!confirm(`Delete calendar "${cal.name}"? Its events move to another calendar.`)) return;
-      await window.api.deleteCalendar(cal.id);
+      if (!confirm(`Delete calendar "${cal.name}"?\n\nAll events in this calendar will be deleted too.`)) return;
+      const res = await window.api.deleteCalendar(cal.id);
+      if (res && res.error) { toast(res.error, 'error'); return; }
       state.calendars = state.calendars.filter(c => c.id !== cal.id);
+      state.hiddenCalendars.delete(cal.id);
+      localStorage.setItem('lumen.hiddenCals', JSON.stringify([...state.hiddenCalendars]));
       rebuildColorMaps(); await refresh();
-      toast('Calendar deleted');
+      const n = res && res.events;
+      toast(n ? `Calendar deleted · ${n} event${n === 1 ? '' : 's'} removed` : 'Calendar deleted');
     };
     li.append(sw, nm, edit, del);
     li.onclick = async () => {
@@ -612,7 +621,10 @@ function openDayPopover(iso, x, y) {
     pop.appendChild(el('div', 'pop-empty', 'Nothing here yet — add something!'));
 
   const actions = el('div', 'pop-actions');
-  const be = el('button', 'pe', '＋ Event'), bt = el('button', 'pt', '＋ Task'), bn = el('button', 'pn', '＋ Note');
+  const be = el('button', 'pe'), bt = el('button', 'pt'), bn = el('button', 'pn');
+  be.innerHTML = icon('calendar-plus') + ' Event';
+  bt.innerHTML = icon('check-square') + ' Task';
+  bn.innerHTML = icon('file-plus') + ' Note';
   be.onclick = () => { closePopover(); openEventModal(null, iso); };
   bt.onclick = () => { closePopover(); openTaskModal(null, iso); };
   bn.onclick = () => { closePopover(); openNoteModal(null, iso); };
@@ -749,6 +761,13 @@ function initDatePickers(modal) {
 function setSel(sel, value, options) {
   sel.innerHTML = options.map(([v, l]) => `<option value="${v}" ${String(v) === String(value) ? 'selected' : ''}>${l}</option>`).join('');
 }
+function reminderLabel(min) {
+  if (min == null || min === -1) return 'none';
+  if (min === 0) return 'at start';
+  if (min >= 1440) { const d = Math.round(min / 1440); return `${d} day${d === 1 ? '' : 's'} before`; }
+  if (min >= 60) { const h = Math.floor(min / 60), m = min % 60; return m ? `${h}h ${m}m before` : `${h} hour${h === 1 ? '' : 's'} before`; }
+  return `${min} min before`;
+}
 function setOpts(container, items, selVal, valKey) {
   container.innerHTML = items.map(item =>
     `<div class="copt ${item[valKey] === selVal ? 'sel' : ''}" data-v="${item[valKey]}" style="background:${item.color || item[valKey]}"></div>`
@@ -808,10 +827,12 @@ function openEventModal(ev, presetDate, presetTime) {
   }
   if (ev?.rrule) $('#evRrule', m).value = ev.rrule;
 
-  setSel($('#evRem', m), ev?.reminder ?? '',
-    [[null, 'No reminder'], [0, 'At start'], [5, '5 min before'], [15, '15 min before'],
-     [30, '30 min before'], [60, '1 hour before'], [1440, '1 day before']]
-      .map(([v, l]) => [v === null ? '' : String(v), l]));
+  setSel($('#evRem', m), ev?.reminder === -1 ? 'off' : (ev?.reminder == null ? '' : String(ev.reminder)),
+    [['off', 'No reminder'],
+     ['', `Default (${reminderLabel(state.settings.defaultReminder)})`],
+     ['0', 'At start'], ['5', '5 min before'], ['15', '15 min before'],
+     ['30', '30 min before'], ['60', '1 hour before'], ['120', '2 hours before'],
+     ['1440', '1 day before']]);
 
   const toggleTimes = () => $$('.trow', m).forEach(r => r.style.visibility = $('#evAllDay', m).checked ? 'hidden' : 'visible');
   $('#evAllDay', m).onchange = toggleTimes; toggleTimes();
@@ -844,6 +865,7 @@ function openEventModal(ev, presetDate, presetTime) {
       end = $('#evEndD', m).value + 'T' + $('#evEndT', m).value;
       if (end <= start) end = fISO(new Date(pLocal(start).getTime() + 3600000));
     }
+    const remVal = $('#evRem', m).value;
     const payload = {
       title,
       calendarId: $('#evCal', m).value,
@@ -851,7 +873,7 @@ function openEventModal(ev, presetDate, presetTime) {
       color: evColor,
       start, end, allDay: ad,
       rrule: $('#evRrule', m).value || null,
-      reminder: $('#evRem', m).value === '' ? null : +$('#evRem', m).value,
+      reminder: remVal === 'off' ? -1 : (remVal === '' ? null : +remVal),
       location: $('#evLoc', m).value.trim(),
       description: $('#evDesc', m).value.trim()
     };
@@ -984,9 +1006,11 @@ function openSettingsModal() {
     stName: s.name,
     stCity: s.city,
     stRem: s.remindersEnabled,
+    stDefRem: s.defaultReminder == null || s.defaultReminder === -1 ? 'off' : String(s.defaultReminder),
     stMin: s.startMinimized,
     stBoot: s.startOnBoot,
     stDark: s.darkMode,
+    stRound: s.roundedCorners !== false
   });
   if (s.hour24) { $('#stHour .active', m).classList.remove('active'); $('#stHour button[data-v="1"]', m).classList.add('active'); }
   else { $('#stHour .active', m).classList.remove('active'); $('#stHour button[data-v="0"]', m).classList.add('active'); }
@@ -995,6 +1019,10 @@ function openSettingsModal() {
   const fmt = s.dateFormat || 'DD/MM/YYYY';
   $('#stDateFmt .active', m).classList.remove('active');
   $(`#stDateFmt button[data-v="${fmt}"]`, m).classList.add('active');
+
+  const tray = s.trayIcon || 'auto';
+  $('#stTray .active', m).classList.remove('active');
+  $(`#stTray button[data-v="${tray}"]`, m).classList.add('active');
 
   const accents = [['coral', 'Coral', '#FF6B6B'], ['teal', 'Teal', '#14B8A6'], ['violet', 'Violet', '#845EC2'], ['amber', 'Amber', '#F59E0B'], ['blue', 'Sky', '#4D96FF']];
   setOpts($('#stAccents', m), accents.map(([k, l, c]) => ({ color: c, id: k })), s.accent, 'id', 'color');
@@ -1008,7 +1036,13 @@ function openSettingsModal() {
   const segWire = id => $$('#' + id + ' button', m).forEach(b => b.onclick = () => {
     $$('#' + id + ' button', m).forEach(x => x.classList.remove('active')); b.classList.add('active');
   });
-  segWire('stHour'); segWire('stWeek'); segWire('stDateFmt');
+  segWire('stHour'); segWire('stWeek'); segWire('stDateFmt'); segWire('stTray');
+
+  $('#stTestNotif', m).onclick = async () => {
+    const res = await window.api.testNotification();
+    if (res && res.supported) toast('Test notification sent — check your notification area', 'success');
+    else toast('Desktop notifications are not supported on this system', 'error');
+  };
 
   $('#stCancel', m).onclick = () => { document.body.dataset.accent = s.accent; closeModal(); };
   $('#stSave', m).onclick = async () => {
@@ -1020,11 +1054,15 @@ function openSettingsModal() {
       weekStart: +$('#stWeek .active', m).dataset.v,
       dateFormat: $('#stDateFmt .active', m).dataset.v,
       remindersEnabled: $('#stRem', m).checked,
+      defaultReminder: $('#stDefRem', m).value === 'off' ? -1 : +$('#stDefRem', m).value,
       startMinimized: $('#stMin', m).checked,
       startOnBoot: $('#stBoot', m).checked,
-      darkMode: $('#stDark', m).checked
+      darkMode: $('#stDark', m).checked,
+      roundedCorners: $('#stRound', m).checked,
+      trayIcon: $('#stTray .active', m).dataset.v
     };
     state.settings = await window.api.updateSettings(patch);
+    applyWindowChrome();
     renderProfile(); closeModal(); await refresh(); toast('Settings saved', 'success');
   };
 }
@@ -1135,6 +1173,14 @@ function rebuildColorMaps() {
   if (catChanged) { _catColorMapCache = newCat; state.catColorMap = newCat; }
 }
 
+/* ---------- window chrome ---------- */
+function applyWindowChrome() {
+  document.body.classList.toggle('rounded', state.settings.roundedCorners !== false);
+}
+function applyWindowState(s) {
+  document.body.classList.toggle('maximized', !!(s && s.maximized));
+}
+
 /* ---------- boot ---------- */
 async function boot() {
   const boot = await window.api.getBootstrap();
@@ -1176,6 +1222,9 @@ async function boot() {
     else openEventModal(null, todayISO());
   });
   window.api.onReminder(info => toast(`🔔 Reminder: ${info.title}`));
+  window.api.onWindowState(s => applyWindowState(s));
+  applyWindowChrome();
+  window.api.isMaximized().then(m => applyWindowState({ maximized: m }));
 
   // keyboard shortcuts
   document.addEventListener('keydown', e => {
