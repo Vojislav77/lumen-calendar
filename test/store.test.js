@@ -170,4 +170,44 @@ describe('Settings defaults', () => {
     assert.equal(s.data.settings.darkMode, false);
     try { fs.unlinkSync(dbPath); } catch (_) {}
   });
+
+  it('new store reminds 15 minutes before by default', () => {
+    const dbPath = path.join(TMP, 'test-reminder.json');
+    const s = new Store(dbPath);
+    assert.equal(s.data.settings.defaultReminder, 15);
+    assert.equal(s.data.settings.remindersEnabled, true);
+    try { fs.unlinkSync(dbPath); } catch (_) {}
+  });
+});
+
+describe('Calendar deletion', () => {
+  it('removes the calendar together with only its own events', () => {
+    const dbPath = path.join(TMP, 'test-caldeleted.json');
+    const s = new Store(dbPath);
+    const mine = s.add('events', { title: 'Mine', start: '2026-09-01T10:00', end: '2026-09-01T11:00', calendarId: 'cal-personal' });
+    const other = s.add('events', { title: 'Other', start: '2026-09-02T10:00', end: '2026-09-02T11:00', calendarId: 'cal-work' });
+    s.markNotified(`${mine.id}|2026-09-01T10:00|15`);
+
+    const res = s.removeCalendar('cal-personal');
+
+    assert.equal(res.removedEvents, 1);
+    assert.equal(s.data.calendars.length, 1);
+    assert.equal(s.data.calendars[0].id, 'cal-work');
+    assert.equal(s.data.events.length, 1);
+    assert.equal(s.data.events[0].id, other.id);
+    assert.equal(s.wasNotified(`${mine.id}|2026-09-01T10:00|15`), false);
+    try { fs.unlinkSync(dbPath); } catch (_) {}
+  });
+
+  it('can undo a calendar deletion', () => {
+    const dbPath = path.join(TMP, 'test-calundo.json');
+    const s = new Store(dbPath);
+    s.add('events', { title: 'A', start: '2026-09-01T10:00', end: '2026-09-01T11:00', calendarId: 'cal-personal' });
+    s.removeCalendar('cal-personal');
+    assert.equal(s.data.calendars.length, 1);
+    s.undo();
+    assert.equal(s.data.calendars.length, 2);
+    assert.equal(s.data.events.length, 1);
+    try { fs.unlinkSync(dbPath); } catch (_) {}
+  });
 });
