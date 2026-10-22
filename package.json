@@ -1,6 +1,6 @@
 {
   "name": "lumen-calendar",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "A bright, modern personal calendar with events, tasks and notes",
   "main": "src/main.js",
   "author": "Lumen",
@@ -43,5 +43,5 @@
     "electron": "^41.7.1",
     "electron-builder": "^26.15.3"
   },
-  "desktopName": "lumen-calendar"
+  "desktopName": "Lumen_Calendar"
 }
