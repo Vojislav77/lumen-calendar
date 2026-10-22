@@ -20,6 +20,7 @@
   --shadow: 0 2px 10px rgba(43, 49, 64, .07);
   --shadow-lg: 0 12px 40px rgba(43, 49, 64, .16);
   --radius: 14px;
+  --win-radius: 12px;
   --font: "Inter", "Segoe UI", "Noto Sans", "Cantarell", sans-serif;
 }
 body[data-accent="teal"] {
@@ -79,21 +80,49 @@ body[data-theme="dark"] ::-webkit-scrollbar-thumb:hover { background: #454C5C; }
 * { margin: 0; padding: 0; box-sizing: border-box; }
 html {
   height: 100%;
-  background: var(--bg);
+  background: transparent;   /* window itself is transparent → rounded corners */
+  overflow: hidden;
 }
 body {
   height: 100%;
   font-family: var(--font);
   font-size: 13.5px;
   color: var(--ink);
-  background: var(--bg);
+  background: none;          /* must stay transparent: no canvas propagation */
   user-select: none;
+  overflow: hidden;
+}
+/* the visible app surface — owns the background so the corners can be clipped */
+#app {
+  height: 100%;
   display: flex;
   flex-direction: column;
+  position: relative;
+  background: var(--bg);
+  overflow: hidden;
+  border-radius: 0;
 }
+body.rounded #app { border-radius: var(--win-radius); }
+body.rounded.maximized #app { border-radius: 0; }
+/* hairline frame that follows the rounded corners */
+#app::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border: 1px solid var(--line);
+  border-radius: inherit;
+  pointer-events: none;
+}
+/* the full-screen dimmers should follow the window shape too */
+body.rounded #modalOverlay,
+body.rounded .shortcuts-overlay { border-radius: var(--win-radius); }
+body.rounded.maximized #modalOverlay,
+body.rounded.maximized .shortcuts-overlay { border-radius: 0; }
 button { font-family: var(--font); cursor: pointer; border: none; background: none; color: inherit; }
 input, select, textarea { font-family: var(--font); font-size: 13.5px; color: var(--ink); }
 .hidden { display: none !important; }
+.svg-sprite { position: absolute; width: 0; height: 0; overflow: hidden; }
+.ico { width: 15px; height: 15px; flex: 0 0 auto; pointer-events: none; }
 ::-webkit-scrollbar { width: 9px; height: 9px; }
 ::-webkit-scrollbar-thumb { background: #D4DAE6; border-radius: 8px; border: 2px solid transparent; background-clip: content-box; }
 ::-webkit-scrollbar-thumb:hover { background: #B9C2D4; background-clip: content-box; border: 2px solid transparent; }
@@ -151,6 +180,7 @@ input, select, textarea { font-family: var(--font); font-size: 13.5px; color: va
 }
 .tb-group { display: flex; gap: 6px; align-items: center; }
 .tb-btn {
+  display: inline-flex; align-items: center; gap: 6px;
   padding: 7px 13px; border-radius: 10px; font-weight: 600; font-size: 13px;
   transition: background .12s, transform .12s, box-shadow .12s;
 }
@@ -206,7 +236,7 @@ input, select, textarea { font-family: var(--font); font-size: 13.5px; color: va
 .side-section.grow { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .side-section.grow .side-list { overflow-y: auto; }
 .side-list { list-style: none; display: flex; flex-direction: column; gap: 3px; }
-.link-btn { color: var(--accent-deep); font-weight: 600; font-size: 12.5px; padding: 5px 8px; border-radius: 8px; text-align: left; }
+.link-btn { display: inline-flex; align-items: center; gap: 5px; color: var(--accent-deep); font-weight: 600; font-size: 12.5px; padding: 5px 8px; border-radius: 8px; text-align: left; }
 .link-btn:hover { background: var(--accent-soft); }
 
 #miniCal { padding: 4px; }
@@ -231,7 +261,8 @@ input, select, textarea { font-family: var(--font); font-size: 13.5px; color: va
 #calList li.off .sw { opacity: .25; }
 #calList li.off .nm { color: var(--ink-faint); text-decoration: line-through; }
 #calList .nm { flex: 1; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-#calList .del { color: var(--ink-faint); opacity: 0; padding: 0 5px; border-radius: 6px; }
+#calList .del { display: inline-flex; align-items: center; color: var(--ink-faint); opacity: 0; padding: 0 5px; border-radius: 6px; }
+#calList .del .ico { width: 13px; height: 13px; }
 #calList li:hover .del { opacity: 1; }
 #calList .del:hover { color: #F05252; background: #FDE8E8; }
 
@@ -345,7 +376,8 @@ input, select, textarea { font-family: var(--font); font-size: 13.5px; color: va
 .pop-item.done .ti { text-decoration: line-through; color: var(--ink-faint); }
 .pop-sec { font-size: 10.5px; text-transform: uppercase; letter-spacing: .7px; color: var(--ink-faint); font-weight: 700; margin: 9px 4px 3px; }
 .pop-actions { display: flex; gap: 5px; margin-top: 10px; border-top: 1px solid var(--line); padding-top: 10px; }
-.pop-actions button { flex: 1; padding: 6px; border-radius: 9px; font-weight: 600; font-size: 12px; }
+.pop-actions button { display: inline-flex; align-items: center; justify-content: center; gap: 4px; flex: 1; padding: 6px; border-radius: 9px; font-weight: 600; font-size: 12px; }
+.pop-actions .ico { width: 13px; height: 13px; }
 .pop-actions .pe { background: var(--accent-soft); color: var(--accent-deep); }
 .pop-actions .pt { background: var(--teal-soft); color: #0E9488; }
 .pop-actions .pn { background: var(--violet-soft); color: var(--violet); }
