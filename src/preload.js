@@ -23,6 +23,7 @@ contextBridge.exposeInMainWorld('api', {
   addCategory: c => ipcRenderer.invoke('add-category', c),
 
   updateSettings: patch => ipcRenderer.invoke('update-settings', patch),
+  testNotification: () => ipcRenderer.invoke('test-notification'),
 
   searchEvents: query => ipcRenderer.invoke('search-events', query),
   undo: () => ipcRenderer.invoke('undo'),
@@ -36,5 +37,6 @@ contextBridge.exposeInMainWorld('api', {
   isMaximized: () => ipcRenderer.invoke('win-is-maximized'),
 
   onQuickAdd: cb => ipcRenderer.on('quick-add', (e, type) => cb(type)),
-  onReminder: cb => ipcRenderer.on('reminder-fired', (e, info) => cb(info))
+  onReminder: cb => ipcRenderer.on('reminder-fired', (e, info) => cb(info)),
+  onWindowState: cb => ipcRenderer.on('window-state', (e, s) => cb(s))
 });
