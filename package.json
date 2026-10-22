@@ -1,6 +1,6 @@
 {
   "name": "lumen-calendar",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "A bright, modern personal calendar with events, tasks and notes",
   "main": "src/main.js",
   "author": "Lumen",
