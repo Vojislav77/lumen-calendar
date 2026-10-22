@@ -16,11 +16,12 @@ A clean, fast, offline-first desktop calendar for Linux, macOS, and Windows. Bui
 - **Dark mode** — system-following or manual toggle
 - **12 / 24-hour time** and **date format** (`DD/MM/YYYY`, `MM/DD/YYYY`, `DD Mon YYYY`)
 - **Week start** — Monday or Sunday
-- **Reminders** — desktop notifications with a configurable default lead time (at start, 5 min, 15 min, 30 min, 1 h, 2 h, 1 day), per-event overrides, and a test-notification button
+- **Reminders** — desktop notifications with a configurable default lead time (at start, 5 min, 15 min, 30 min, 1 h, 2 h, 1 day), per-event overrides, a test-notification button; changing the default applies it to every existing event
 - **Search** — search all events by title, location, or description
 - **Keyboard shortcuts** — press `?` anywhere to see the full list
 - **System tray** — minimize to tray with optional start-on-boot
 - **Tray icon style** — full-colour app icon, KDE-style symbolic monochrome light/dark (22 px glyph at 1×, 44 px at 2×), or auto (follows the system theme)
+- **Frameless window with rounded corners** — and a crisp theme-aware 1 px frame so the window edge stays visible
 - **Minimal & responsive UI** — built with vanilla JS, no framework overhead
 
 ## Quick start
