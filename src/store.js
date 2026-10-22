@@ -19,9 +19,12 @@ const DEFAULT_DATA = () => ({
     weekStart: 1,            // 0 = Sunday, 1 = Monday
     accent: 'coral',
     remindersEnabled: true,
+    defaultReminder: 15,     // minutes before start; -1 = never remind
     startMinimized: false,
     darkMode: false,
-    startOnBoot: false
+    startOnBoot: false,
+    trayIcon: 'auto',       // color | light | dark | auto
+    roundedCorners: true    // KDE-style rounded window corners
   },
   calendars: [
     { id: 'cal-personal', name: 'Personal', color: '#FF6B6B' },
@@ -145,6 +148,20 @@ class Store {
     const i = arr.findIndex(x => x.id === id);
     if (i >= 0) { arr.splice(i, 1); this.save(); return true; }
     return false;
+  }
+
+  /** Deletes a calendar together with every event that belongs to it. */
+  removeCalendar(id) {
+    this._pushUndo();
+    const gone = this.data.events.filter(ev => ev.calendarId === id);
+    this.data.events = this.data.events.filter(ev => ev.calendarId !== id);
+    this.data.calendars = this.data.calendars.filter(c => c.id !== id);
+    const goneIds = new Set(gone.map(ev => ev.id));
+    for (const key of Object.keys(this.data.notified)) {
+      if (goneIds.has(key.split('|')[0])) delete this.data.notified[key];
+    }
+    this.save();
+    return { removedEvents: gone.length };
   }
 
   /* ---------- recurrence expansion ---------- */
