@@ -178,6 +178,37 @@ describe('Settings defaults', () => {
     assert.equal(s.data.settings.remindersEnabled, true);
     try { fs.unlinkSync(dbPath); } catch (_) {}
   });
+
+  it('changing the default makes every event follow it', () => {
+    const dbPath = path.join(TMP, 'test-reminder-all.json');
+    const s = new Store(dbPath);
+    s.add('events', { title: 'Imported 15', start: '2026-09-01T10:00', end: '2026-09-01T11:00', reminder: 15 });
+    s.add('events', { title: 'Imported 30', start: '2026-09-02T10:00', end: '2026-09-02T11:00', reminder: 30 });
+    s.add('events', { title: 'Default', start: '2026-09-03T10:00', end: '2026-09-03T11:00', reminder: null });
+
+    s.setDefaultReminder(60);
+    assert.equal(s.data.settings.defaultReminder, 60);
+    assert.ok(s.data.events.every(ev => ev.reminder == null));
+
+    s.undo();
+    assert.equal(s.data.settings.defaultReminder, 15);
+    assert.equal(s.data.events[0].reminder, 15);
+    assert.equal(s.data.events[1].reminder, 30);
+    try { fs.unlinkSync(dbPath); } catch (_) {}
+  });
+
+  it('migrates imported reminders to the global default once', () => {
+    const dbPath = path.join(TMP, 'test-reminder-migrate.json');
+    fs.writeFileSync(dbPath, JSON.stringify({
+      settings: { defaultReminder: 30 },
+      events: [{ id: 'e1', title: 'Imported', start: '2026-09-01T10:00', end: '2026-09-01T11:00', reminder: 15 }]
+    }));
+    const s = new Store(dbPath);
+    assert.equal(s.data.events[0].reminder, null);
+    assert.equal(s.data.settings.defaultReminder, 30);
+    assert.equal(s.data.settings.reminderDefaultApplied, true);
+    try { fs.unlinkSync(dbPath); } catch (_) {}
+  });
 });
 
 describe('Calendar deletion', () => {
