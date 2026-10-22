@@ -79,6 +79,7 @@ class Store {
     this._undoStack = [];
     this._maxUndo = 30;
     this.load();
+    this._migrateReminderDefaults();
   }
 
   _snapshot() {
@@ -162,6 +163,22 @@ class Store {
     }
     this.save();
     return { removedEvents: gone.length };
+  }
+
+  /** Changes the global default and makes every event follow it. */
+  setDefaultReminder(minutes) {
+    this._pushUndo();
+    this.data.settings.defaultReminder = minutes;
+    for (const ev of this.data.events) ev.reminder = null;
+    this.save();
+  }
+
+  /** One-time upgrade: alarms imported before the default became global. */
+  _migrateReminderDefaults() {
+    if (this.data.settings.reminderDefaultApplied) return;
+    for (const ev of this.data.events) ev.reminder = null;
+    this.data.settings.reminderDefaultApplied = true;
+    this.save(true);
   }
 
   /* ---------- recurrence expansion ---------- */
