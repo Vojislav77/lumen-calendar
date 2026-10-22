@@ -1,9 +1,10 @@
 'use strict';
-const { app, BrowserWindow, Tray, Menu, ipcMain, dialog, Notification, nativeImage, shell } = require('electron');
+const { app, BrowserWindow, Tray, Menu, ipcMain, dialog, Notification, nativeImage, nativeTheme, shell, screen } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const https = require('https');
 const http = require('http');
+const { execFile } = require('child_process');
 const { Store, parseLocal, fmtLocal } = require('./store');
 const { importICS, exportICS, importCSV } = require('./importers');
 
@@ -48,7 +49,8 @@ function createWindow() {
     minHeight: 620,
     frame: false,
     show: false,
-    backgroundColor: '#F6F8FB',
+    transparent: true,          // enables the CSS rounded corners (KDE-style)
+    backgroundColor: '#00000000',
     title: 'Lumen Calendar',
     icon: iconPath() || undefined,
     webPreferences: {
@@ -69,7 +71,8 @@ function createWindow() {
       setTimeout(async () => {
         try {
           if (process.env.LUMEN_JS) {
-            await win.webContents.executeJavaScript(process.env.LUMEN_JS);
+            const out = await win.webContents.executeJavaScript(process.env.LUMEN_JS);
+            if (out !== undefined) console.log('LUMEN_JS ->', JSON.stringify(out));
             await new Promise(r => setTimeout(r, 900));
           }
           const img = await win.webContents.capturePage();
@@ -84,6 +87,13 @@ function createWindow() {
     if (!quitting) { e.preventDefault(); win.hide(); }   // close-to-tray
   });
   win.on('closed', () => { win = null; });
+
+  // tell the renderer when the window is maximised (rounded corners are dropped then)
+  const sendWindowState = () => {
+    if (win && !win.isDestroyed()) win.webContents.send('window-state', { maximized: win.isMaximized() });
+  };
+  win.on('maximize', sendWindowState);
+  win.on('unmaximize', sendWindowState);
 }
 
 function showWindow() {
@@ -92,12 +102,71 @@ function showWindow() {
   win.show(); win.focus();
 }
 
+/* ---------------- autostart (Linux) ---------------- */
+function applyAutostart(enabled) {
+  if (process.platform !== 'linux') {
+    app.setLoginItemSettings({ openAtLogin: enabled });
+    return;
+  }
+  const file = path.join(app.getPath('home'), '.config', 'autostart', 'lumen-calendar.desktop');
+  try {
+    if (enabled) {
+      const exec = process.env.APPIMAGE || process.execPath;
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(file,
+        '[Desktop Entry]\n' +
+        'Type=Application\n' +
+        'Name=Lumen Calendar\n' +
+        'Comment=Calendar, tasks and notes\n' +
+        `Exec="${exec}"\n` +
+        'Icon=lumen-calendar\n' +
+        'Terminal=false\n' +
+        'X-GNOME-Autostart-enabled=true\n');
+    } else if (fs.existsSync(file)) {
+      fs.unlinkSync(file);
+    }
+  } catch (e) { console.error('Autostart update failed:', e.message); }
+}
+
 /* ---------------- tray ---------------- */
-function createTray() {
+const TRAY_ICONS = {
+  light: 'mono-light',
+  dark: 'mono-dark'
+};
+
+function trayImage() {
+  const mode = (store && store.data.settings.trayIcon) || 'auto';
+  let file = TRAY_ICONS[mode];
+  if (mode === 'auto') {
+    // follow the system theme: light glyph on dark panels, dark glyph on light ones
+    file = nativeTheme.shouldUseDarkColors ? 'mono-light' : 'mono-dark';
+  }
+  if (file) {
+    // use the 22px pixmap on normal displays (matches KDE tray icons) and the 2x one on HiDPI
+    const size = (screen.getPrimaryDisplay().scaleFactor || 1) >= 1.5 ? 44 : 22;
+    for (const s of [size, size === 22 ? 44 : 22]) {
+      const p = path.join(__dirname, '..', 'assets', 'tray', `${file}-${s}.png`);
+      try {
+        if (fs.existsSync(p)) {
+          const img = nativeImage.createFromBuffer(fs.readFileSync(p));
+          if (!img.isEmpty()) return img;
+        }
+      } catch (_) {}
+    }
+  }
+  // full-colour app icon
   const p = iconPath();
   let img = p ? nativeImage.createFromPath(p) : nativeImage.createEmpty();
   if (!img.isEmpty() && img.getSize().width > 24) img = img.resize({ width: 22 });
-  tray = new Tray(img);
+  return img;
+}
+
+function updateTrayImage() {
+  if (tray) tray.setImage(trayImage());
+}
+
+function createTray() {
+  tray = new Tray(trayImage());
   tray.setToolTip('Lumen Calendar');
   rebuildTrayMenu();
   tray.on('click', () => toggleWindow());
@@ -122,34 +191,64 @@ function toggleWindow() {
 }
 
 /* ---------------- reminders ---------------- */
+function reminderMinutes(ev) {
+  if (ev.reminder === -1) return null;               // explicitly disabled on the event
+  if (ev.reminder == null) {
+    const d = store.data.settings.defaultReminder;
+    return (d == null || d === -1) ? null : +d;      // fall back to the global default
+  }
+  return +ev.reminder;
+}
+
+function fmtLead(min) {
+  if (min >= 1440) { const d = Math.round(min / 1440); return `${d} day${d === 1 ? '' : 's'}`; }
+  if (min >= 60) { const h = Math.floor(min / 60), m = min % 60; return m ? `${h}h ${m}m` : `${h}h`; }
+  return `${min} min`;
+}
+
+/** Shows a desktop notification, falling back to notify-send when libnotify is missing. */
+function showNotification(title, body) {
+  if (Notification.isSupported()) {
+    const n = new Notification({ title, body, icon: iconPath() || undefined });
+    n.on('click', showWindow);
+    n.show();
+    return Promise.resolve('native');
+  }
+  return new Promise(resolve => {
+    execFile('notify-send', ['--app-name=Lumen Calendar', `--icon=${iconPath() || 'x-office-calendar'}`, title, body],
+      err => resolve(err ? null : 'notify-send'));
+  });
+}
+
 function checkReminders() {
   if (!store || !store.data.settings.remindersEnabled) return;
-  if (!Notification.isSupported()) return;
   const now = new Date();
   const nowISO = fmtLocal(new Date(Date.UTC(
     now.getFullYear(), now.getMonth(), now.getDate(), now.getHours(), now.getMinutes())));
-  // expand a window covering the longest possible reminder (1 day ahead)
-  const ahead = new Date(parseLocal(nowISO).getTime() + 26 * 3600 * 1000);
+  // compare in the same floating-local space (not Date.now(), which is real UTC)
+  const nowMs = parseLocal(nowISO).getTime();
+  // cover the longest reminder (1 day) plus everything happening in the next 36h
+  const ahead = new Date(nowMs + 36 * 3600 * 1000);
   const instances = store.expandEvents(nowISO, fmtLocal(ahead));
   for (const ev of instances) {
-    if (ev.reminder == null) continue;
-    const startMs = parseLocal(ev.allDay ? ev.instanceStart + 'T09:00' : ev.instanceStart).getTime();
-    const nowMs = parseLocal(nowISO).getTime();
-    const diffMin = Math.round((startMs - nowMs) / 60000);
-    if (diffMin < 0 || diffMin > ev.reminder) continue;
-    const key = `${ev.id}|${ev.instanceStart}`;
+    const minutes = reminderMinutes(ev);
+    if (minutes == null) continue;
+    // all-day events are announced at 09:00 of their day
+    const startISO = ev.allDay ? ev.instanceStart.slice(0, 10) + 'T09:00' : ev.instanceStart;
+    const startDate = parseLocal(startISO);
+    if (!startDate) continue;
+    const diffMin = Math.round((startDate.getTime() - nowMs) / 60000);
+    if (diffMin < 0 || diffMin > minutes) continue;
+    const key = `${ev.id}|${ev.instanceStart}|${minutes}`;
     if (store.wasNotified(key)) continue;
     store.markNotified(key);
-    const when = ev.allDay ? 'today (all day)' :
-      `at ${ev.instanceStart.slice(11)}`;
-    const n = new Notification({
-      title: ev.title,
-      body: `Starts ${when}${ev.location ? ' · ' + ev.location : ''}`,
-      icon: iconPath() || undefined,
-      silent: false
-    });
-    n.on('click', showWindow);
-    n.show();
+
+    const when = ev.allDay
+      ? (ev.instanceStart.slice(0, 10) === nowISO.slice(0, 10) ? 'All day today' : `All day ${ev.instanceStart.slice(0, 10)}`)
+      : `Starts at ${ev.instanceStart.slice(11)}${diffMin > 0 ? ` — in ${fmtLead(diffMin)}` : ' now'}`;
+    const body = `${when}${ev.location ? ' · ' + ev.location : ''}`;
+    showNotification(ev.title, body).catch(() => {});
+    console.log(`Reminder fired: "${ev.title}" ${ev.instanceStart} (${minutes} min before)`);
     if (win) win.webContents.send('reminder-fired', { title: ev.title, instanceStart: ev.instanceStart });
   }
 }
@@ -191,10 +290,9 @@ function registerIPC() {
   ipcMain.handle('update-calendar', (e, { id, patch }) => store.update('calendars', id, patch));
   ipcMain.handle('delete-calendar', (e, id) => {
     if (store.data.calendars.length <= 1) return { error: 'At least one calendar is required' };
-    const fallback = store.data.calendars.find(c => c.id !== id);
-    for (const ev of store.data.events) if (ev.calendarId === id) ev.calendarId = fallback.id;
-    store.save();
-    return store.remove('calendars', id);
+    if (!store.data.calendars.some(c => c.id === id)) return { error: 'Calendar not found' };
+    const { removedEvents } = store.removeCalendar(id);
+    return { ok: true, events: removedEvents };
   });
   ipcMain.handle('add-category', (e, c) => store.add('categories', c));
 
@@ -202,8 +300,14 @@ function registerIPC() {
   ipcMain.handle('update-settings', (e, patch) => {
     Object.assign(store.data.settings, patch);
     store.save();
-    if ('startOnBoot' in patch) app.setLoginItemSettings({ openAtLogin: patch.startOnBoot });
+    if ('startOnBoot' in patch) applyAutostart(patch.startOnBoot);
+    if ('trayIcon' in patch) updateTrayImage();
     return store.data.settings;
+  });
+
+  ipcMain.handle('test-notification', async () => {
+    const via = await showNotification('Lumen Calendar', 'Notifications are working — reminders will look like this.');
+    return { supported: !!via, via };
   });
 
   // window controls
@@ -296,10 +400,14 @@ if (!gotLock) {
 
   app.whenReady().then(() => {
     app.setAppUserModelId('com.lumen.calendar');
-    store = new Store(path.join(app.getPath('userData'), 'lumen-data.json'));
+    store = new Store(path.join(process.env.LUMEN_DATA_DIR || app.getPath('userData'), 'lumen-data.json'));
+    if (store.data.settings.startOnBoot) applyAutostart(true);
     registerIPC();
     createWindow();
     createTray();
+    nativeTheme.on('updated', () => {
+      if ((store.data.settings.trayIcon || 'auto') === 'auto') updateTrayImage();
+    });
     checkReminders();
     setInterval(checkReminders, 30000);
 
